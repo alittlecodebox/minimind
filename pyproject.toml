@@ -1,5 +1,4 @@
-[
-tool.uv]
+[tool.uv]
 dev-dependencies = []
 
 [project]
@@ -7,7 +6,7 @@ name = "minimind"
 version = "0.1.0"
 description = "MiniMind: lightweight LLM training/inference utilities"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10,<3.13"
 license = { file = "LICENSE" }
 authors = [
   { name = "MiniMind Maintainers" }
@@ -20,12 +19,12 @@ dependencies = [
   "jieba==0.42.1",
   "jsonlines==4.0.0",
   "marshmallow==3.22.0",
-  "matplotlib==3.10.0",
+  "matplotlib>=3.5.0",
   "ngrok==1.4.0",
   "nltk==3.8",
-  "numpy==1.26.4",
+  "numpy>=1.24.0,<2.0.0",
   "openai==1.59.6",
-  "pandas==1.5.3",
+  "pandas>=1.5.0,<3.0.0",
   "peft==0.7.1",
   "psutil==5.9.8",
   "pydantic==2.8.2",
@@ -40,16 +39,23 @@ dependencies = [
   "ujson==5.1.0",
   "wandb==0.18.3",
   "streamlit==1.30.0",
-  "torch==2.3.0",
-  "torchvision==0.18.0",
+  "torch>=2.6.0",
+  "torchvision>=0.21.0",
 ]
 
 [project.urls]
 homepage = "https://github.com/"
 
 [tool.uv.sources]
-torch = { index = "https://download.pytorch.org/whl/cu121" }
-torchvision = { index = "https://download.pytorch.org/whl/cu121" }
+torch = { index = "pytorch-cu129" }
+torchvision = { index = "pytorch-cu129" }
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+
+[tool.hatch.build.targets.wheel]
+packages = ["model", "dataset", "trainer", "scripts"]
 
 [build-system]
 requires = ["hatchling"]
