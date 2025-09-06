@@ -35,6 +35,13 @@ def clear_gpu_cache():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
+def force_garbage_collection():
+    """Force Python garbage collection to free memory"""
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 def log_memory_usage(step, prefix=""):
     """Log current GPU memory usage"""
     if torch.cuda.is_available():
@@ -75,9 +82,16 @@ def train_epoch(epoch, wandb):
         # Clear intermediate tensors immediately after backward pass
         del res, loss
         
+        # Clear input tensors to prevent memory leak
+        del X, Y, loss_mask
+        
         # Clear cache more frequently to prevent oscillation
         if step % args.clear_cache_freq == 0:
             clear_gpu_cache()
+        
+        # Force garbage collection every 5 steps to prevent memory leak
+        if step % 5 == 0:
+            force_garbage_collection()
 
         if (step + 1) % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
