@@ -114,7 +114,29 @@ def train_epoch(epoch, wandb):
 
 
 def init_model(lm_config):
-    tokenizer = AutoTokenizer.from_pretrained('../model/')
+    # Try multiple tokenizer loading methods
+    model_path = os.path.abspath('../model/')
+    
+    try:
+        # Method 1: Direct path with local_files_only
+        tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+        Logger(f"✅ Tokenizer loaded from: {model_path}")
+    except Exception as e1:
+        Logger(f"❌ Method 1 failed: {e1}")
+        try:
+            # Method 2: Try without local_files_only
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            Logger(f"✅ Tokenizer loaded from: {model_path} (without local_files_only)")
+        except Exception as e2:
+            Logger(f"❌ Method 2 failed: {e2}")
+            try:
+                # Method 3: Try relative path
+                tokenizer = AutoTokenizer.from_pretrained('./model/', local_files_only=True)
+                Logger(f"✅ Tokenizer loaded from: ./model/")
+            except Exception as e3:
+                Logger(f"❌ All methods failed. Please check model directory exists.")
+                raise e3
+    
     model = MiniMindForCausalLM(lm_config).to(args.device)
     Logger(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
     return model, tokenizer
