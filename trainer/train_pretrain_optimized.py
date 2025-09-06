@@ -35,12 +35,23 @@ def clear_gpu_cache():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
+def log_memory_usage(step, prefix=""):
+    """Log current GPU memory usage"""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**3
+        reserved = torch.cuda.memory_reserved() / 1024**3
+        Logger(f"{prefix}Step {step}: Allocated={allocated:.1f}GB, Reserved={reserved:.1f}GB")
+
 
 def train_epoch(epoch, wandb):
     loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
     
     for step, (X, Y, loss_mask) in enumerate(train_loader):
+        # Log memory at start of step
+        if step % 10 == 0:
+            log_memory_usage(step, "START ")
+        
         X = X.to(args.device, non_blocking=True)
         Y = Y.to(args.device, non_blocking=True)
         loss_mask = loss_mask.to(args.device, non_blocking=True)
@@ -60,6 +71,13 @@ def train_epoch(epoch, wandb):
             loss = loss / args.accumulation_steps
 
         scaler.scale(loss).backward()
+        
+        # Clear intermediate tensors immediately after backward pass
+        del res, loss
+        
+        # Clear cache more frequently to prevent oscillation
+        if step % args.clear_cache_freq == 0:
+            clear_gpu_cache()
 
         if (step + 1) % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
@@ -70,9 +88,12 @@ def train_epoch(epoch, wandb):
 
             optimizer.zero_grad(set_to_none=True)
             
-            # Clear cache every accumulation step to prevent memory buildup
-            if step % (args.accumulation_steps * 2) == 0:
-                clear_gpu_cache()
+            # Clear cache after every optimizer step
+            clear_gpu_cache()
+            
+            # Log memory after optimizer step
+            if step % 10 == 0:
+                log_memory_usage(step, "AFTER_OPT ")
 
         if step % args.log_interval == 0:
             spend_time = time.time() - start_time
@@ -179,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_iters", type=int, default=0)
     parser.add_argument("--log_interval", type=int, default=10)  # More frequent logging
     parser.add_argument("--save_interval", type=int, default=100)
+    parser.add_argument("--clear_cache_freq", type=int, default=1, help="Clear GPU cache every N steps (1=every step)")
     parser.add_argument('--local_rank', type=int, default=-1)
     
     # 1B MODEL CONFIGURATION
