@@ -46,14 +46,14 @@ dependencies = [
 [project.urls]
 homepage = "https://github.com/"
 
-# Mac-specific PyTorch configuration (no CUDA)
+# Linux/Windows PyTorch configuration (CUDA)
 [tool.uv.sources]
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
+torch = { index = "pytorch-cu129" }
+torchvision = { index = "pytorch-cu129" }
 
 [[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
 
 [tool.hatch.build.targets.wheel]
 packages = ["model", "dataset", "trainer", "scripts"]
