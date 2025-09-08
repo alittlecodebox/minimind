@@ -46,6 +46,24 @@ def force_garbage_collection():
     elif torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+def optimize_mac_memory():
+    """Mac-specific memory optimizations"""
+    if torch.backends.mps.is_available():
+        # Set MPS memory fraction to prevent OOM
+        try:
+            # This helps with memory management on Mac
+            torch.mps.set_per_process_memory_fraction(0.8)
+            Logger("✅ Set MPS memory fraction to 0.8")
+        except Exception as e:
+            Logger(f"ℹ️  Could not set MPS memory fraction: {e}")
+        
+        # Enable memory efficient attention if available
+        try:
+            torch.backends.mps.enable_flash_sdp(False)  # Disable flash attention on MPS
+            Logger("ℹ️  Disabled flash attention for MPS compatibility")
+        except Exception as e:
+            Logger(f"ℹ️  Flash attention setting not available: {e}")
+
 
 def log_memory_usage(step, prefix=""):
     """Log current memory usage"""
@@ -80,7 +98,7 @@ def train_epoch(epoch, wandb):
     
     for step, (X, Y, loss_mask) in enumerate(train_loader):
         # Log memory at start of step
-        if step % 10 == 0:
+        if step % 100 == 0:
             log_memory_usage(step, "START ")
         
         X = X.to(args.device, non_blocking=True)
@@ -100,8 +118,15 @@ def train_epoch(epoch, wandb):
             loss = (loss * loss_mask).sum() / loss_mask.sum()
             loss += res.aux_loss
             loss = loss / args.accumulation_steps
+            
+            # Capture loss value for logging before backward pass
+            loss_value = loss.item() * args.accumulation_steps
 
-        scaler.scale(loss).backward()
+        # Handle backward pass with or without scaler
+        if scaler is not None:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
         
         # Clear intermediate tensors immediately after backward pass
         del res, loss
@@ -118,11 +143,15 @@ def train_epoch(epoch, wandb):
             force_garbage_collection()
 
         if (step + 1) % args.accumulation_steps == 0:
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-
-            scaler.step(optimizer)
-            scaler.update()
+            # Handle optimizer step with or without scaler
+            if scaler is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
 
             optimizer.zero_grad(set_to_none=True)
             
@@ -141,13 +170,13 @@ def train_epoch(epoch, wandb):
                     args.epochs,
                     step,
                     iter_per_epoch,
-                    loss.item() * args.accumulation_steps,
+                    loss_value,
                     optimizer.param_groups[-1]['lr'],
                     spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60))
 
             if (wandb is not None):
                 wandb.log({
-                    "loss": loss.item() * args.accumulation_steps,
+                    "loss": loss_value,
                     "lr": optimizer.param_groups[-1]['lr'],
                     "epoch_Time": spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60
                 })
@@ -222,7 +251,7 @@ if __name__ == "__main__":
     parser.add_argument("--accumulation_steps", type=int, default=16)  # Adjusted for Mac
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--warmup_iters", type=int, default=0)
-    parser.add_argument("--log_interval", type=int, default=10)
+    parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--save_interval", type=int, default=100)
     parser.add_argument('--local_rank', type=int, default=-1)
     parser.add_argument("--clear_cache_freq", type=int, default=1, help="Clear memory cache every N steps")
@@ -299,6 +328,7 @@ if __name__ == "__main__":
         # MPS doesn't support GradScaler yet
         scaler = None
         Logger("ℹ️  MPS GradScaler not available, using regular backward")
+        Logger("ℹ️  Using float16 for memory efficiency on Mac")
     else:
         scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype in ['float16', 'bfloat16']))
 
@@ -308,6 +338,10 @@ if __name__ == "__main__":
     
     # Clear initial cache
     clear_memory_cache()
+    
+    # Apply Mac-specific optimizations
+    if args.device.type == "mps":
+        optimize_mac_memory()
     
     Logger(f"Starting training with {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters")
     Logger(f"Device: {args.device}")
